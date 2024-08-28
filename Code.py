@@ -18,7 +18,7 @@ learning_rate = 0.001
 # mind you that the dataset doesn't have values between 0 and 1 but rather between 0 and 255, with mean = 127.5 and almost normal curve (maybe wrong), but the dataloader normalizes the values (min max) to fit between 0 and 1
 # We transform them to Tensors of normalized range [-1, 1]
 transform = transforms.Compose(
-    [transforms.Grayscale(),
+    [transforms.Grayscale(3), #throws an error in main program if 1 channel is given out
      transforms.RandomHorizontalFlip(p = 0.5),
      transforms.ToTensor(),
      transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -65,7 +65,7 @@ classes = ('plane', 'car', 'bird', 'cat',
 # # show images
 # imshow(torchvision.utils.make_grid(images))
 class CNN(nn.Module):
-    def __init__(self, in_channels=1, num_classes=10):
+    def __init__(self, in_channels=3, num_classes=10):
         super().__init__()
         self.conv1 = nn.Conv2d(
             in_channels=in_channels,
@@ -176,6 +176,8 @@ for epoch in range(num_epochs):
         '''after change'''
         # origin shape: [500, 1, 32, 32] 
         # input_layer: 1 input channels, 8 output channels, 5 kernel size
+        '''throws error'''
+        # hence input channels are again kept 3 (all grayscale maybe)
         images = images.to(device)
         labels = labels.to(device)
 
