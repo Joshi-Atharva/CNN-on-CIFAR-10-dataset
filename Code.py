@@ -105,7 +105,7 @@ class CNN(nn.Module):
         x = self.pool(x) # out -> (8, 8, 16)
         x = F.relu(self.conv3(x)) # 3*3, same, out -> (8, 8, 32)
         x = self.pool(x) # out -> (4, 4, 32)
-        x = x.reshape(x.shape[0], -1) # shape[0] is 32 by convention (outermost/leading (1st) dimension denotes usually the highest level characteristic of data (in this case no. of channels))
+        x = x.reshape(x.shape[0], -1) # shape[0] is batch_size = 500 by convention (outermost/leading (1st) dimension denotes usually the highest level characteristic of data (in this case no. of training examples in x))
         x = F.relu(self.bn1(self.fc1(x)))
         x = self.dropout(x)
         x = F.relu(self.bn2(self.fc2(x)))
