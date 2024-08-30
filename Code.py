@@ -1,3 +1,9 @@
+'''
+    Subject: Image classification on CIFAR10 dataset using CNN with pytorch
+    Author: Atharva Joshi
+    Date of creation: 30/08/2024
+'''
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,9 +16,9 @@ import numpy as np
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Hyper-parameters
-num_epochs = 10
-batch_size = 500
-learning_rate = 0.001
+num_epochs = 20
+batch_size = 1024
+learning_rate = 0.002
 
 # dataset has PILImage images of range [0, 1].
 # mind you that the dataset doesn't have values between 0 and 1 but rather between 0 and 255, with mean = 127.5 and almost normal curve (maybe wrong), but the dataloader normalizes the values (min max) to fit between 0 and 1
@@ -50,21 +56,8 @@ test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size,
 classes = ('plane', 'car', 'bird', 'cat',
            'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
-# def imshow(img):
-#     img = img / 2 + 0.5  # unnormalize
-#     npimg = img.numpy()
-#     plt.imshow(np.transpose(npimg, (1, 2, 0)))
-#     plt.show()
 
-
-# # get some random training images
-# dataiter = iter(train_loader)
-# images, labels = next(dataiter)
-
-
-# # show images
-# imshow(torchvision.utils.make_grid(images))
-class CNN(nn.Module):
+class CNN_improved(nn.Module):
     def __init__(self, in_channels=3, num_classes=10):
         super().__init__()
         self.conv1 = nn.Conv2d(
@@ -93,9 +86,7 @@ class CNN(nn.Module):
         )
         self.fc1 = nn.Linear(32 * 4 * 4, 128 )
         self.bn1 = nn.BatchNorm1d(128)
-        self.fc2 = nn.Linear(128, 32)
-        self.bn2 = nn.BatchNorm1d(32)
-        self.fc3 = nn.Linear(32, num_classes)
+        self.fc2 = nn.Linear(128, num_classes)
         self.dropout = nn.Dropout(0.5)
 
     def forward(self, x):
@@ -108,45 +99,45 @@ class CNN(nn.Module):
         x = x.reshape(x.shape[0], -1) # shape[0] is batch_size = 500 by convention (outermost/leading (1st) dimension denotes usually the highest level characteristic of data (in this case no. of training examples in x))
         x = F.relu(self.bn1(self.fc1(x)))
         x = self.dropout(x)
-        x = F.relu(self.bn2(self.fc2(x)))
-        x = self.dropout(x)
-        x = self.fc3(x)
+        x = self.fc2(x)
         return x
 
-class ConvNet(nn.Module):
-    def __init__(self):
-        super(ConvNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(6, 16, 3)
-        self.conv3 = nn.Conv2d(16, 32, 3)
-        self.fc1 = nn.Linear(32 * 2 * 2, 96)
-        self.fc2 = nn.Linear(96, 64)
-        self.fc3 = nn.Linear(64, 32)
-        self.fc4 = nn.Linear(32, 10)
-        self.dropout = nn.Dropout(0.2)
+# model performance metrics:
+loss_list = [] # list containing loss of every updation step
+training_accuracy = [] # list containing train accuracy after every updation step
 
-    def forward(self, x):
-                                              # -> n, 3, 32, 32
-        x = self.pool(F.relu(self.conv1(x)))  # -> n, 6, 14, 14 (conv1 -> n, 6, 28, 28)
-        x = self.pool(F.relu(self.conv2(x)))  # -> n, 16, 6, 6  (conv2 -> n, 16, 12, 12)
-        x = self.pool(F.relu(self.conv3(x)))  # -> n, 32, 2, 2  (conv3 -> n, 32, 4, 4)
-        x = x.view(-1, 32 * 2 * 2)            # -> n, 128
-        x = F.relu(self.fc1(x))               # -> n, 96
-        x = self.dropout(x)                   # -> n, 96
-        x = F.relu(self.fc2(x))               # -> n, 64
-        x = self.dropout(x)                   # -> n, 64
-        x = F.relu(self.fc3(x))               # -> n, 32
-        x = self.fc4(x)                       # -> n, 10
-        return x
+avg_train_acc = 0 # scalar variable for aggregating accuracy values for each updation step and averaging over all steps in current epoch
+avg_val_acc = 0 # similar aggregator/accumulator for validation accuracy
+avg_loss = 0
+val_epoch_acc = [] # list containing validation accuracy values for each epoch averaged over all updation steps in that epoch
+train_epoch_acc = [] # similar list for training accuracy
+loss_epoch_list = []
+
+# initialising model and loading checkpoint
+model = CNN_improved().to(device)
+PATH = 'model_full.pt'
+checkpoint = torch.load(PATH, weights_only = True)
+
+# initialising loss function and optimizer
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, betas = (0.99, 0.999), weight_decay = 0.001)
+
+# laoding via state dictionaries
+transfer_model = int(input("Transfer previous model? (1 for yes, 0 for no) "))
+if(transfer_model):
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    prev_epochs = checkpoint['epoch']
+    loss_epoch_list = checkpoint['loss_epoch_list']
+    train_epoch_acc = checkpoint['train_epoch_acc']
+    val_epoch_acc = checkpoint['val_epoch_acc']
 
 
-model = CNN().to(device)
 def val_accuracy(model, val_loader):
     n_correct = 0
     n_samples = 0
-    model.eval()
-    with torch.no_grad():
+    model.eval() # disabling dropout and some other training algorithms
+    with torch.no_grad(): # disabling gradient calculation
         for images, labels in val_loader:
             images = images.to(device)
             labels = labels.to(device)
@@ -158,23 +149,31 @@ def val_accuracy(model, val_loader):
 
         acc = 100.0 * n_correct / n_samples
         return acc
+    model.train() # again enabling dropout and other training algorithms
 
 
 
-criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, betas = (0.97, 0.999), weight_decay = 0.001)
-loss_list = []
-training_accuracy = []
-avg_train_acc = 0
-avg_val_acc = 0
-flag = 0
+# Training:
+
 n_total_steps = len(train_loader)
 for epoch in range(num_epochs):
+    if(epoch == num_epochs//2):
+        # Saving the model for future (general checkpoint) after half no. epochs
+        PATH = "model_half.pt"
+        torch.save({
+                    'loss_epoch_list': loss_epoch_list,
+                    'val_epoch_acc': val_epoch_acc,
+                    'train_epoch_acc': train_epoch_acc,
+                    'epoch': prev_epochs + num_epochs//2,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    }, PATH)
+
     for i, (images, labels) in enumerate(train_loader):
         # origin shape: [4, 3, 32, 32] = 4, 3, 1024
         # input_layer: 3 input channels, 6 output channels, 5 kernel size
         '''after change'''
-        # origin shape: [500, 1, 32, 32] 
+        # origin shape: [500, 1, 32, 32]
         # input_layer: 1 input channels, 8 output channels, 5 kernel size
         '''throws error'''
         # hence input channels are again kept 3 (all grayscale maybe)
@@ -195,30 +194,61 @@ for epoch in range(num_epochs):
         loss.backward()
         optimizer.step()
 
-        avg_val_acc = avg_val_acc + val_accuracy(model, val_loader)
-
+        # accumulation of train and val accuracy values for current updation step
         updation_step = epoch * n_total_steps + i # complete_epochs_over * n_total_steps + batch_index
+        avg_val_acc = avg_val_acc + val_accuracy(model, val_loader)
+        avg_train_acc = avg_train_acc + accuracy
+        avg_loss = avg_loss + loss.item()
 
-        if (i+1) % 20 == 0:
-            print (f'Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{n_total_steps}], Loss: {loss.item():.4f}, train-accuracy: {training_accuracy[updation_step]*100:.2f}%, val-accuracy: {val_accuracy(model, val_loader)}%')
+        # displaying current model performace
+        if (i+1) % 10 == 0:
+            print (f'Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{n_total_steps}], Loss: {loss.item():.4f}, train-accuracy: {accuracy*100:.2f}%, val-accuracy: {val_accuracy(model, val_loader)}%')       
 
-        if (i+1)  == 90 and epoch > 5:
-            avg_train_acc = sum(training_accuracy[updation_step-89:updation_step+1])/90
-            avg_val_acc = avg_val_acc/90
-            if ((avg_train_acc*100 - avg_val_acc) > 10) and (flag == 0) :
-                torch.save({'model': model.state_dict(), 'optim': optim.state_dict()}, '...')
-                state_dict = torch.load('...')
-                model.load_state_dict(state_dict['model'])
-                optim = torch.optim.Adam(model.paramters(), learning_rate, betas = (0.97, 0.999), weight_decay = 0.01)
-                flag = 1
-                print("switched to new optimizer")
-            avg_train_acc = 0
-            avg_val_acc = 0
+    # calculating avg over the current epoch from the accumulated sum
+    avg_train_acc /= n_total_steps
+    avg_train_acc = avg_train_acc*100
+    avg_val_acc /= n_total_steps
+    avg_loss /= n_total_steps
+    val_epoch_acc.append(avg_val_acc)
+    train_epoch_acc.append(avg_train_acc)
+    loss_epoch_list.append(avg_loss)
 
+    # re assignment for next epoch
+    avg_train_acc = 0
+    avg_val_acc = 0
+    avg_loss = 0
 
+    if(epoch == num_epochs//2):
+        with torch.no_grad():
+            model.eval() # eval block begin
+            n_correct = 0
+            n_samples = 0
+            n_class_correct = [0 for i in range(10)]
+            n_class_samples = [0 for i in range(10)]
+            for images, labels in test_loader:
+                images = images.to(device)
+                labels = labels.to(device)
+                outputs = model(images)
+                # max returns (value ,index)
+                _, predicted = torch.max(outputs, 1)
+                n_samples += labels.size(0)
+                n_correct += (predicted == labels).sum().item()
 
+                for i in range(labels.shape[0]):
+                    label = labels[i]
+                    pred = predicted[i]
+                    if (label == pred):
+                        n_class_correct[label] += 1
+                    n_class_samples[label] += 1
 
+            acc = 100.0 * n_correct / n_samples
+            print(f'Accuracy of the network: {acc} %')
 
+            for i in range(10):
+                acc = 100.0 * n_class_correct[i] / n_class_samples[i]
+                print(f'Accuracy of {classes[i]}: {acc} %')
+
+            model.train() # eval block close (effectively)
 
 
 
@@ -232,11 +262,18 @@ plt.xlabel('Number of updation steps')
 plt.ylabel('Training Accuracy')
 plt.show()
 
+plt.title("Averaged over each epoch")
+plt.plot(train_epoch_acc)
+plt.plot(val_epoch_acc)
+plt.xlabel("Epochs")
+plt.ylabel("Accuracy")
+plt.legend(["Training accuracy", "Validation accuracy"])
+plt.show()
+
 print('Finished Training')
-PATH = './cnn.pth'
-torch.save(model.state_dict(), PATH)
 
 with torch.no_grad():
+    model.eval()
     n_correct = 0
     n_samples = 0
     n_class_correct = [0 for i in range(10)]
@@ -250,7 +287,7 @@ with torch.no_grad():
         n_samples += labels.size(0)
         n_correct += (predicted == labels).sum().item()
 
-        for i in range(batch_size):
+        for i in range(labels.shape[0]):
             label = labels[i]
             pred = predicted[i]
             if (label == pred):
@@ -263,3 +300,17 @@ with torch.no_grad():
     for i in range(10):
         acc = 100.0 * n_class_correct[i] / n_class_samples[i]
         print(f'Accuracy of {classes[i]}: {acc} %')
+    model.train()
+
+# Saving the model for future (again, general checkpoint)
+PATH = "model_full.pt"
+torch.save({
+            'loss_epoch_list': loss_epoch_list,
+            'val_epoch_acc': val_epoch_acc,
+            'train_epoch_acc': train_epoch_acc,
+            'epoch': prev_epochs + num_epochs//2,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            }, PATH)
+
+print("model saved as 'model_full.pt'")
