@@ -67,8 +67,9 @@ class CNN_improved(nn.Module):
             stride=1,
             padding=2, # p = (f-1)/2 hence this is same covolution
         )
-
+        self.bn1 = nn.BatchNorm2d(8)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        
         self.conv2 = nn.Conv2d(
             in_channels=8,
             out_channels=16,
@@ -76,7 +77,8 @@ class CNN_improved(nn.Module):
             stride=1,
             padding=2, # p = (f-1)/2 hence this is same covolution
         )
-
+        self.bn2 =  nn.BatchNorm2d(16)
+        
         self.conv3 = nn.Conv2d(
             in_channels=16,
             out_channels=32,
@@ -84,20 +86,36 @@ class CNN_improved(nn.Module):
             stride=1,
             padding=1, # p = (f-1)/2 hence this is same covolution
         )
+        self.bn3 = nn.BatchNorm2d(32)
+        
         self.fc1 = nn.Linear(32 * 4 * 4, 128 )
-        self.bn1 = nn.BatchNorm1d(128)
+        self.bn4 = nn.BatchNorm1d(128)
         self.fc2 = nn.Linear(128, num_classes)
         self.dropout = nn.Dropout(0.5)
+        self.downsample = nn.Sequential(
+                nn.Conv2d(
+                    in_channels = in_channels,
+                    out_channels = 16, 
+                    kernel_size = 1, # 1*1 conv
+                    padding = 0,
+                    stride = 2, # floor((32 + 2(0) - 1)/2) + 1 = 16
+                    bias = False,
+                ),
+                nn.BatchNorm2d(out_channels)
+        )
 
     def forward(self, x):
-        x = F.relu(self.conv1(x)) # 5*5, same, output -> (32, 32, 8)
+        identity = self.downsample(x) # Residual 
+        
+        x = F.relu(self.bn1(self.conv1(x))) # 5*5, same, output -> (32, 32, 8)
         x = self.pool(x) # out -> (16, 16, 8)
-        x = F.relu(self.conv2(x)) # 5*5, same, out -> (16, 16, 16)
+        
+        x = F.relu(self.bn2(self.conv2(x)) + identity) # 5*5, same, out -> (16, 16, 16)
         x = self.pool(x) # out -> (8, 8, 16)
-        x = F.relu(self.conv3(x)) # 3*3, same, out -> (8, 8, 32)
+        x = F.relu(self.bn3(self.conv3(x))) # 3*3, same, out -> (8, 8, 32)
         x = self.pool(x) # out -> (4, 4, 32)
         x = x.reshape(x.shape[0], -1) # shape[0] is batch_size = 500 by convention (outermost/leading (1st) dimension denotes usually the highest level characteristic of data (in this case no. of training examples in x))
-        x = F.relu(self.bn1(self.fc1(x)))
+        x = F.relu(self.bn4(self.fc1(x)))
         x = self.dropout(x)
         x = self.fc2(x)
         return x
@@ -121,6 +139,7 @@ checkpoint = torch.load(PATH, weights_only = True)
 # initialising loss function and optimizer
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, betas = (0.99, 0.999), weight_decay = 0.001)
+prev_epochs = 0 # default value if no model is loaded
 
 # laoding via state dictionaries
 transfer_model = int(input("Transfer previous model? (1 for yes, 0 for no) "))
@@ -262,13 +281,23 @@ plt.xlabel('Number of updation steps')
 plt.ylabel('Training Accuracy')
 plt.show()
 
-plt.title("Averaged over each epoch")
-plt.plot(train_epoch_acc)
-plt.plot(val_epoch_acc)
-plt.xlabel("Epochs")
-plt.ylabel("Accuracy")
-plt.legend(["Training accuracy", "Validation accuracy"])
-plt.show()
+# function to plot all aggregate curves
+def plot_avgs(train_epoch_acc, val_epoch_acc, loss_epoch_list):
+    plt.title("Loss averaged over each epoch")
+    plt.plot(loss_epoch_list)
+    plt.ylabel("Loss")
+    plt.xlabel("Epochs")
+    plt.show()
+    
+    plt.title("Averaged over each epoch")
+    plt.plot(train_epoch_acc)
+    plt.plot(val_epoch_acc)
+    plt.xlabel("Epochs")
+    plt.ylabel("Accuracy")
+    plt.legend(["Training accuracy", "Validation accuracy"])
+    plt.show()
+    
+plot_avgs(train_epoch_acc, val_epoch_acc, loss_epoch_list)
 
 print('Finished Training')
 
@@ -308,7 +337,7 @@ torch.save({
             'loss_epoch_list': loss_epoch_list,
             'val_epoch_acc': val_epoch_acc,
             'train_epoch_acc': train_epoch_acc,
-            'epoch': prev_epochs + num_epochs//2,
+            'epoch': prev_epochs + num_epochs,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             }, PATH)
