@@ -167,8 +167,9 @@ def val_accuracy(model, val_loader):
             n_correct += (predicted == labels).sum().item()
 
         acc = 100.0 * n_correct / n_samples
+        model.train() # again enabling dropout and other training algorithms
         return acc
-    model.train() # again enabling dropout and other training algorithms
+    
 
 
 
